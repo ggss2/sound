@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>소리 점프 장애물 게임</title>
+  <style>
+    body {
+      margin: 0;
+      background: #222;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+    }
+    #gameCanvas {
+      background: #333;
+      border: 2px solid #555;
+      margin-top: 10px;
+    }
+    #info {
+      margin-top: 10px;
+      text-align: center;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    button {
+      margin-top: 10px;
+      padding: 8px 16px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>소리로 점프하는 장애물 게임</h2>
+  <button id="startBtn">마이크 허용 후 게임 시작</button>
+  <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+  <div id="info">
+    🔊 마이크에 대고 소리를 내면 점프합니다.<br>
+    작은 소리 → 낮게 점프 / 큰 소리 → 높게 점프<br>
+    (조용한 환경에서 테스트해보세요!)
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const startBtn = document.getElementById("startBtn");
+
+    // 오디오 관련 변수
+    let audioContext, analyser, dataArray;
+    let micReady = false;
+
+    // 게임 상태 변수
+    const groundY = 320; // 바닥 높이
+    const gravity = 0.6;
+    let obstacles = [];
+    let spawnTimer = 0;
+    let spawnInterval = 1500; // ms
+    let lastTime = 0;
+    let gameRunning = false;
+    let score = 0;
+
+    const player = {
+      x: 100,
+      y: groundY,
+      w: 40,
+      h: 40,
+      vy: 0
+    };
+
+    function initAudio(stream) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(stream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      const bufferLength = analyser.fftSize;
+      dataArray = new Uint8Array(bufferLength);
+
+      source.connect(analyser);
+      micReady = true;
+    }
+
+    function getVolume() {
+      if (!micReady) return 0;
+
+      analyser.getByteTimeDomainData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = dataArray[i] - 128; // 무음 기준
+        sum += Math.abs(v);
+      }
+      const avg = sum / dataArray.length; // 평균 진폭 (0~대략 50 근처)
+      let volume = avg / 40; // 0~1 정도로 정규화
+      if (volume > 1) volume = 1;
+      return volume;
+    }
+
+    function resetGame() {
+      player.x = 100;
+      player.y = groundY;
+      player.vy = 0;
+      obstacles = [];
+      spawnTimer = 0;
+      score = 0;
+      gameRunning = true;
+      lastTime = performance.now();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function spawnObstacle() {
+      const height = 60 + Math.random() * 60;
+      const width = 30 + Math.random() * 20;
+      obstacles.push({
+        x: canvas.width,
+        y: groundY + (player.h - height),
+        w: width,
+        h: height,
+        passed: false
+      });
+    }
+
+    function isColliding(a, b) {
+      return !(
+        a.x + a.w < b.x ||
+        a.x > b.x + b.w ||
+        a.y + a.h < b.y ||
+        a.y > b.y + b.h
+      );
+    }
+
+    function update(delta) {
+      const volume = getVolume();
+
+      // 점프 (바닥에 있고, 일정 소리 이상일 때)
+      const onGround = (player.y >= groundY);
+      if (onGround && volume > 0.25) {
+        const baseJump = 10;
+        const extraJump = volume * 18;
+        player.vy = -(baseJump + extraJump);
+      }
+
+      // 중력 적용
+      player.vy += gravity;
+      player.y += player.vy;
+
+      // 바닥 충돌 처리
+      if (player.y > groundY) {
+        player.y = groundY;
+        player.vy = 0;
+      }
+
+      // 장애물 생성 타이머
+      spawnTimer += delta;
+      if (spawnTimer > spawnInterval) {
+        spawnObstacle();
+        spawnTimer = 0;
+        // 난이도 점진 증가
+        if (spawnInterval > 800) {
+          spawnInterval -= 30;
+        }
+      }
+
+      // 장애물 이동
+      const speed = 4.5;
+      for (let obs of obstacles) {
+        obs.x -= speed;
+
+        // 점수: 플레이어 뒤로 지나가면 +1
+        if (!obs.passed && obs.x + obs.w < player.x) {
+          obs.passed = true;
+          score++;
+        }
+
+        // 충돌 체크
+        if (isColliding(player, obs)) {
+          gameRunning = false;
+        }
+      }
+
+      // 화면 밖 장애물 제거
+      obstacles = obstacles.filter(o => o.x + o.w > 0);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 바닥
+      ctx.fillStyle = "#555";
+      ctx.fillRect(0, groundY + player.h, canvas.width, canvas.height - groundY - player.h);
+
+      // 플레이어
+      ctx.fillStyle = "#4caf50";
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+
+      // 장애물
+      ctx.fillStyle = "#f44336";
+      for (let obs of obstacles) {
+        ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+      }
+
+      // 점수
+      ctx.fillStyle = "#fff";
+      ctx.font = "20px sans-serif";
+      ctx.fillText("Score: " + score, 10, 30);
+
+      // 현재 볼륨 바 표시
+      const volume = getVolume();
+      const barWidth = 200;
+      const barHeight = 10;
+      ctx.fillStyle = "#888";
+      ctx.fillRect(10, 50, barWidth, barHeight);
+      ctx.fillStyle = "#00e5ff";
+      ctx.fillRect(10, 50, barWidth * volume, barHeight);
+      ctx.fillStyle = "#fff";
+      ctx.font = "12px sans-serif";
+      ctx.fillText("Volume", 10, 45);
+
+      if (!gameRunning) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "32px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over!", canvas.width / 2, canvas.height / 2 - 20);
+        ctx.font = "20px sans-serif";
+        ctx.fillText("Score: " + score, canvas.width / 2, canvas.height / 2 + 10);
+        ctx.fillText("버튼을 눌러 다시 시작하세요.", canvas.width / 2, canvas.height / 2 + 40);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function gameLoop(timestamp) {
+      if (!gameRunning) {
+        draw();
+        return;
+      }
+      const delta = timestamp - lastTime;
+      lastTime = timestamp;
+
+      update(delta);
+      draw();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    startBtn.addEventListener("click", async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        initAudio(stream);
+        resetGame();
+      } catch (err) {
+        alert("마이크 권한을 허용해야 게임을 할 수 있습니다.\n브라우저 설정을 확인해주세요.");
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
