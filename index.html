@@ -35,14 +35,14 @@
   </style>
 </head>
 <body>
-  <h2>소리로 점프하는 장애물 게임 (2단 점프 + 코인 + 체공 강화)</h2>
+  <h2>소리로 점프하는 장애물 게임 (2단 점프 + 코인 + 체공)</h2>
   <button id="startBtn">마이크 허용 후 게임 시작</button>
   <canvas id="gameCanvas" width="800" height="400"></canvas>
 
   <div id="info">
     🔊 마이크에 대고 소리를 내면 점프합니다. (2단 점프 가능!)<br>
     작은 소리 → 낮게 / 큰 소리 → 높게 점프합니다.<br>
-    소리가 나는 동안에는 공중에서 천천히 떨어져요. (체공 효과↑)<br>
+    소리가 나는 동안에는 떨어지는 속도가 줄어듭니다.<br>
     노란 코인을 먹으면 점수가 추가됩니다.<br>
     dB(상대값)는 실제 물리 데시벨이 아닌, 게임용 표시값입니다.
   </div>
@@ -57,7 +57,7 @@
     let micReady = false;
 
     // 게임 상태 변수
-    const groundY = 320; // 바닥 높이 (플레이어 y 기준)
+    const groundY = 320; // 바닥 y (플레이어 기준)
     const gravity = 0.6;
     const obstacleSpeed = 4.5;
 
@@ -114,7 +114,7 @@
         const v = dataArray[i] - 128; // 무음 기준
         sum += Math.abs(v);
       }
-      const avg = sum / dataArray.length; // 평균 진폭 (0~대략 50 근처)
+      const avg = sum / dataArray.length; // 평균 진폭
       lastAvgAmp = avg;
 
       // 게임용 데시벨(상대값) 계산
@@ -123,7 +123,7 @@
       lastDb = Math.max(0, Math.round(db));
 
       // 0~1 정도로 정규화한 볼륨
-      let volume = avg / 40; // 대략 0~1 범위
+      let volume = avg / 40;
       if (volume > 1) volume = 1;
       if (volume < 0) volume = 0;
 
@@ -171,7 +171,6 @@
     }
 
     function spawnCoin() {
-      // 코인은 공중에 떠 있는 느낌으로 생성
       const r = 10 + Math.random() * 8;
       const minY = 140;
       const maxY = groundY - 40;
@@ -195,18 +194,11 @@
     }
 
     function rectCircleColliding(rect, circle) {
-      // 직사각형-원 충돌 (코인 vs 플레이어)
       const closestX = Math.max(rect.x, Math.min(circle.x, rect.x + rect.w));
       const closestY = Math.max(rect.y, Math.min(circle.y, rect.y + rect.h));
       const dx = circle.x - closestX;
       const dy = circle.y - closestY;
       return (dx * dx + dy * dy) < (circle.r * circle.r);
-    }
-
-    function doJump(volume) {
-      const baseJump = 10;
-      const extraJump = volume * 18;
-      player.vy = -(baseJump + extraJump);
     }
 
     function update(delta) {
@@ -218,10 +210,12 @@
         jumpCount = 0;
       }
 
-      // 2단 점프: 소리가 threshold를 넘는 '순간'마다 점프 1번 사용
+      // 2단 점프: 소리가 threshold를 넘는 '순간'마다 점프 1번
       if (volume > jumpThreshold) {
         if (!wasOverThreshold && jumpCount < maxJumpCount) {
-          doJump(volume);
+          const baseJump = 7;         // 이전보다 약하게
+          const extraJump = volume * 10;
+          player.vy = -(baseJump + extraJump);
           jumpCount++;
         }
         wasOverThreshold = true;
@@ -229,19 +223,24 @@
         wasOverThreshold = false;
       }
 
-      // ✔ 낙하 속도 크게 느려지는 효과 (소리 있을 때 체공 강화)
-      if (volume > 0.15) {
-        // 소리가 클수록 더 오래 둥둥 떠 있는 느낌
-        const antiGravity = volume * 1.0;  // 상승력(값 클수록 위로 버텨줌)
-        player.vy += gravity * 0.15;      // 중력 85% 감소
-        player.vy -= antiGravity;         // 위로 살짝 끌어올림
-      } else {
-        // 평소 중력
-        player.vy += gravity;
+      // 기본 중력 먼저 적용
+      player.vy += gravity;
+
+      // 소리가 나고, 플레이어가 떨어지는 중(vy > 0)일 때만 낙하 속도 감소
+      if (volume > 0.15 && player.vy > 0) {
+        const slowFactor = 0.6;      // 0~1, 작을수록 더 천천히 떨어짐
+        player.vy *= slowFactor;
       }
 
       // 위치 업데이트
       player.y += player.vy;
+
+      // 천장 제한 (화면 위로 튀어나가지 않도록)
+      const ceilingY = 40;
+      if (player.y < ceilingY) {
+        player.y = ceilingY;
+        if (player.vy < 0) player.vy = 0;
+      }
 
       // 바닥 충돌 처리
       if (player.y > groundY) {
@@ -254,147 +253,4 @@
       if (spawnTimer > spawnInterval) {
         spawnObstacle();
         spawnTimer = 0;
-        // 난이도 점진 증가
         if (spawnInterval > 800) {
-          spawnInterval -= 30;
-        }
-      }
-
-      // 코인 생성 타이머
-      coinSpawnTimer += delta;
-      if (coinSpawnTimer > coinSpawnInterval) {
-        spawnCoin();
-        coinSpawnTimer = 0;
-        if (coinSpawnInterval > 700) {
-          coinSpawnInterval -= 20;
-        }
-      }
-
-      // 장애물 이동 및 충돌 체크
-      for (let obs of obstacles) {
-        obs.x -= obstacleSpeed;
-
-        // 점수: 플레이어 뒤로 지나가면 +1
-        if (!obs.passed && obs.x + obs.w < player.x) {
-          obs.passed = true;
-          score++;
-        }
-
-        // 충돌 체크 (플레이어 vs 장애물)
-        if (isColliding(player, obs)) {
-          gameRunning = false;
-        }
-      }
-
-      // 화면 밖 장애물 제거
-      obstacles = obstacles.filter(o => o.x + o.w > 0);
-
-      // 코인 이동 및 먹기 판정
-      for (let coin of coins) {
-        coin.x -= obstacleSpeed;
-
-        if (!coin.collected && rectCircleColliding(player, coin)) {
-          coin.collected = true;
-          score += 5;
-          coinsCollected++;
-        }
-      }
-
-      // 화면 밖이거나 먹힌 코인 제거
-      coins = coins.filter(c => !c.collected && c.x + c.r > 0);
-    }
-
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // 바닥
-      ctx.fillStyle = "#555";
-      ctx.fillRect(0, groundY + player.h, canvas.width, canvas.height - groundY - player.h);
-
-      // 플레이어
-      ctx.fillStyle = "#4caf50";
-      ctx.fillRect(player.x, player.y, player.w, player.h);
-
-      // 장애물
-      ctx.fillStyle = "#f44336";
-      for (let obs of obstacles) {
-        ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-      }
-
-      // 코인 (노란 원)
-      ctx.fillStyle = "#ffeb3b";
-      for (let coin of coins) {
-        ctx.beginPath();
-        ctx.arc(coin.x, coin.y, coin.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 점수 & 코인 수
-      ctx.fillStyle = "#fff";
-      ctx.font = "20px sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText("Score: " + score, 10, 30);
-      ctx.fillText("Coins: " + coinsCollected, 10, 55);
-
-      // 현재 볼륨 바 표시 (마지막 측정값 사용)
-      const volume = lastVolume;
-      const barWidth = 200;
-      const barHeight = 10;
-
-      ctx.font = "12px sans-serif";
-      ctx.fillText("Volume", 10, 80);
-      ctx.fillStyle = "#888";
-      ctx.fillRect(10, 90, barWidth, barHeight);
-      ctx.fillStyle = "#00e5ff";
-      ctx.fillRect(10, 90, barWidth * volume, barHeight);
-
-      // 데시벨(상대값) 표시
-      ctx.fillStyle = "#fff";
-      ctx.font = "12px sans-serif";
-      ctx.fillText("dB(상대값): " + lastDb, 10, 120);
-
-      if (!gameRunning) {
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#fff";
-        ctx.font = "32px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("Game Over!", canvas.width / 2, canvas.height / 2 - 20);
-        ctx.font = "20px sans-serif";
-        ctx.fillText(
-          "Score: " + score + "   (Coins: " + coinsCollected + ")",
-          canvas.width / 2,
-          canvas.height / 2 + 10
-        );
-        ctx.fillText("버튼을 눌러 다시 시작하세요.", canvas.width / 2, canvas.height / 2 + 40);
-        ctx.textAlign = "left";
-      }
-    }
-
-    function gameLoop(timestamp) {
-      if (!gameRunning) {
-        draw();
-        return;
-      }
-      const delta = timestamp - lastTime;
-      lastTime = timestamp;
-
-      update(delta);
-      draw();
-
-      requestAnimationFrame(gameLoop);
-    }
-
-    startBtn.addEventListener("click", async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        initAudio(stream);
-        resetGame();
-      } catch (err) {
-        alert("마이크 권한을 허용해야 게임을 할 수 있습니다.\n브라우저 설정을 확인해주세요.");
-        console.error(err);
-      }
-    });
-  </script>
-</body>
-</html>
