@@ -278,4 +278,128 @@
           score++;
         }
 
-        if (isColliding(pla
+        if (isColliding(player, obs)) {
+          gameRunning = false;
+        }
+      }
+      obstacles = obstacles.filter(o => o.x + o.w > 0);
+
+      // 코인 이동/획득
+      for (let coin of coins) {
+        coin.x -= obstacleSpeed;
+
+        if (!coin.collected && rectCircleColliding(player, coin)) {
+          coin.collected = true;
+          score += 5;
+          coinsCollected++;
+        }
+      }
+      coins = coins.filter(c => !c.collected && c.x + c.r > 0);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 바닥
+      ctx.fillStyle = "#555";
+      ctx.fillRect(0, groundY + player.h, canvas.width, canvas.height - groundY - player.h);
+
+      // 플레이어 (이미지 있으면 이미지, 아니면 사각형)
+      if (imgPlayer.complete && imgPlayer.naturalWidth !== 0) {
+        ctx.drawImage(imgPlayer, player.x, player.y, player.w, player.h);
+      } else {
+        ctx.fillStyle = "#4caf50";
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+      }
+
+      // 장애물
+      for (let obs of obstacles) {
+        if (imgObstacle.complete && imgObstacle.naturalWidth !== 0) {
+          ctx.drawImage(imgObstacle, obs.x, obs.y, obs.w, obs.h);
+        } else {
+          ctx.fillStyle = "#f44336";
+          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+        }
+      }
+
+      // 코인
+      for (let coin of coins) {
+        if (imgCoin.complete && imgCoin.naturalWidth !== 0) {
+          const size = coin.r * 2;
+          ctx.drawImage(imgCoin, coin.x - coin.r, coin.y - coin.r, size, size);
+        } else {
+          ctx.fillStyle = "#ffeb3b";
+          ctx.beginPath();
+          ctx.arc(coin.x, coin.y, coin.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // 점수
+      ctx.fillStyle = "#fff";
+      ctx.font = "20px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("Score: " + score, 10, 30);
+      ctx.fillText("Coins: " + coinsCollected, 10, 55);
+
+      // 볼륨 바
+      const volume = lastVolume;
+      const barWidth = 200;
+      const barHeight = 10;
+      ctx.font = "12px sans-serif";
+      ctx.fillText("Volume", 10, 80);
+      ctx.fillStyle = "#888";
+      ctx.fillRect(10, 90, barWidth, barHeight);
+      ctx.fillStyle = "#00e5ff";
+      ctx.fillRect(10, 90, barWidth * volume, barHeight);
+
+      // dB
+      ctx.fillStyle = "#fff";
+      ctx.font = "12px sans-serif";
+      ctx.fillText("dB(상대값): " + lastDb, 10, 120);
+
+      if (!gameRunning) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "32px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over!", canvas.width / 2, canvas.height / 2 - 20);
+        ctx.font = "20px sans-serif";
+        ctx.fillText(
+          "Score: " + score + "   (Coins: " + coinsCollected + ")",
+          canvas.width / 2,
+          canvas.height / 2 + 10
+        );
+        ctx.fillText("버튼을 눌러 다시 시작하세요.", canvas.width / 2, canvas.height / 2 + 40);
+        ctx.textAlign = "left";
+      }
+    }
+
+    function gameLoop(timestamp) {
+      if (!gameRunning) {
+        draw();
+        return;
+      }
+      const delta = timestamp - lastTime;
+      lastTime = timestamp;
+
+      update(delta);
+      draw();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    startBtn.addEventListener("click", async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        initAudio(stream);
+        resetGame();
+      } catch (err) {
+        alert("마이크 권한을 허용해야 게임을 할 수 있습니다.\n브라우저 설정을 확인해주세요.");
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
