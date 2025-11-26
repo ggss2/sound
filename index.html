@@ -35,14 +35,14 @@
   </style>
 </head>
 <body>
-  <h2>소리로 점프하는 장애물 게임 (2단 점프 + 코인 + 슬로우 낙하)</h2>
+  <h2>소리로 점프하는 장애물 게임 (2단 점프 + 코인 + 체공 강화)</h2>
   <button id="startBtn">마이크 허용 후 게임 시작</button>
   <canvas id="gameCanvas" width="800" height="400"></canvas>
 
   <div id="info">
     🔊 마이크에 대고 소리를 내면 점프합니다. (2단 점프 가능!)<br>
     작은 소리 → 낮게 / 큰 소리 → 높게 점프합니다.<br>
-    ➕ 소리를 계속 내면 공중에서 천천히 떨어집니다. (슬로우 낙하 효과)<br>
+    소리가 나는 동안에는 공중에서 천천히 떨어져요. (체공 효과↑)<br>
     노란 코인을 먹으면 점수가 추가됩니다.<br>
     dB(상대값)는 실제 물리 데시벨이 아닌, 게임용 표시값입니다.
   </div>
@@ -60,10 +60,6 @@
     const groundY = 320; // 바닥 높이 (플레이어 y 기준)
     const gravity = 0.6;
     const obstacleSpeed = 4.5;
-
-    // 🔽 추가: 소리가 들릴 때 낙하 속도를 줄이기 위한 설정
-    const fallSlowThreshold = 0.1;  // 이 볼륨 이상이면 낙하 속도 감소
-    const slowFallFactor = 0.3;     // 중력의 30%만 적용 (더 작게 하면 더 천천히 떨어짐)
 
     let obstacles = [];
     let spawnTimer = 0;
@@ -86,7 +82,8 @@
 
     // 볼륨/데시벨 표시용
     let lastAvgAmp = 0;
-    let lastDb = 0; // 상대값 데시벨
+    let lastDb = 0;       // 상대값 데시벨
+    let lastVolume = 0;   // 0~1 정규화된 볼륨
 
     const player = {
       x: 100,
@@ -121,8 +118,7 @@
       lastAvgAmp = avg;
 
       // 게임용 데시벨(상대값) 계산
-      // avg가 0일 때 무한대 방지 위해 +1
-      let db = 20 * Math.log10(avg + 1);
+      let db = 20 * Math.log10(avg + 1); // +1로 0 방지
       if (!isFinite(db)) db = 0;
       lastDb = Math.max(0, Math.round(db));
 
@@ -130,6 +126,8 @@
       let volume = avg / 40; // 대략 0~1 범위
       if (volume > 1) volume = 1;
       if (volume < 0) volume = 0;
+
+      lastVolume = volume;
       return volume;
     }
 
@@ -151,6 +149,9 @@
 
       jumpCount = 0;
       wasOverThreshold = false;
+
+      lastVolume = 0;
+      lastDb = 0;
 
       gameRunning = true;
       lastTime = performance.now();
@@ -211,9 +212,10 @@
     function update(delta) {
       const volume = getVolume();
 
+      // 바닥에 닿으면 점프 횟수 초기화
       const onGround = (player.y >= groundY);
       if (onGround) {
-        jumpCount = 0; // 바닥에 닿으면 점프 횟수 초기화
+        jumpCount = 0;
       }
 
       // 2단 점프: 소리가 threshold를 넘는 '순간'마다 점프 1번 사용
@@ -227,17 +229,19 @@
         wasOverThreshold = false;
       }
 
-      // 🔽 중력 적용 (소리가 들리는 동안 낙하 속도 감소)
-      let effectiveGravity = gravity;
-
-      // 플레이어가 '떨어지는 중(vy > 0)'이고, 소리가 일정 이상이면 중력을 줄임
-      if (player.vy > 0 && volume > fallSlowThreshold) {
-        effectiveGravity = gravity * slowFallFactor;
+      // ✔ 낙하 속도 크게 느려지는 효과 (소리 있을 때 체공 강화)
+      if (volume > 0.15) {
+        // 소리가 클수록 더 오래 둥둥 떠 있는 느낌
+        const antiGravity = volume * 1.0;  // 상승력(값 클수록 위로 버텨줌)
+        player.vy += gravity * 0.15;      // 중력 85% 감소
+        player.vy -= antiGravity;         // 위로 살짝 끌어올림
+      } else {
+        // 평소 중력
+        player.vy += gravity;
       }
 
-      player.vy += effectiveGravity;
+      // 위치 업데이트
       player.y += player.vy;
-      // 🔼 여기까지 슬로우 낙하 로직
 
       // 바닥 충돌 처리
       if (player.y > groundY) {
@@ -332,8 +336,8 @@
       ctx.fillText("Score: " + score, 10, 30);
       ctx.fillText("Coins: " + coinsCollected, 10, 55);
 
-      // 현재 볼륨 바 표시
-      const volume = getVolume();
+      // 현재 볼륨 바 표시 (마지막 측정값 사용)
+      const volume = lastVolume;
       const barWidth = 200;
       const barHeight = 10;
 
@@ -357,7 +361,11 @@
         ctx.textAlign = "center";
         ctx.fillText("Game Over!", canvas.width / 2, canvas.height / 2 - 20);
         ctx.font = "20px sans-serif";
-        ctx.fillText("Score: " + score + "   (Coins: " + coinsCollected + ")", canvas.width / 2, canvas.height / 2 + 10);
+        ctx.fillText(
+          "Score: " + score + "   (Coins: " + coinsCollected + ")",
+          canvas.width / 2,
+          canvas.height / 2 + 10
+        );
         ctx.fillText("버튼을 눌러 다시 시작하세요.", canvas.width / 2, canvas.height / 2 + 40);
         ctx.textAlign = "left";
       }
