@@ -41,7 +41,8 @@
 
   <div id="info">
     🔊 마이크에 대고 소리를 내면 점프합니다. (2단 점프 가능!)<br>
-    캐릭터/장애물/코인은 투명 배경 PNG 이미지로 표시됩니다.<br>
+    물리값(점프 높이, 낙하 속도)은 이전 버전과 동일합니다.<br>
+    캐릭터/장애물/코인을 PNG 이미지로 표시합니다.<br>
     dB(상대값)는 실제 물리 데시벨이 아닌, 게임용 표시값입니다.
   </div>
 
@@ -50,28 +51,28 @@
     const ctx = canvas.getContext("2d");
     const startBtn = document.getElementById("startBtn");
 
-    // --------- 이미지 로딩 ---------
+    // ---------- 이미지 로딩 ----------
     const imgPlayer = new Image();
     const imgObstacle = new Image();
     const imgCoin = new Image();
 
-    // ▶ 여기 파일 이름을 네가 저장한 파일명으로 바꿔줘
-    imgPlayer.src   = "player.png";    // 앵그리버드 느낌 캐릭터
-    imgObstacle.src = "obstacle.png";  // 가시/상자 등
-    imgCoin.src     = "coin.png";      // 노란 코인
+    // 필요하면 여기 파일명만 바꿔 주세요
+    imgPlayer.src   = "player.png";    // 주인공 캐릭터
+    imgObstacle.src = "obstacle.png";  // 장애물
+    imgCoin.src     = "coin.png";      // 코인
 
-    // 오디오 관련 변수
+    // ---------- 오디오 ----------
     let audioContext, analyser, dataArray;
     let micReady = false;
 
-    // 게임 상태 변수
-    const groundY = 320; // 바닥 y (플레이어 기준)
+    // ---------- 게임 상태 ----------
+    const groundY = 320;   // 플레이어 y 기준 바닥선
     const gravity = 0.6;
     const obstacleSpeed = 4.5;
 
     let obstacles = [];
     let spawnTimer = 0;
-    let spawnInterval = 1500; // ms
+    let spawnInterval = 1500;  // ms
 
     let coins = [];
     let coinSpawnTimer = 0;
@@ -82,10 +83,10 @@
     let score = 0;
     let coinsCollected = 0;
 
-    // 점프 관련 변수 (2단 점프)
+    // 2단 점프 관련
     let jumpCount = 0;
     const maxJumpCount = 2;
-    const jumpThreshold = 0.25;
+    const jumpThreshold = 0.25; // 이 이상 소리 나면 점프
     let wasOverThreshold = false;
 
     // 볼륨/데시벨 표시용
@@ -96,11 +97,12 @@
     const player = {
       x: 100,
       y: groundY,
-      w: 48,  // 이미지 크기에 맞게 살짝 키움
-      h: 48,
+      w: 40,
+      h: 40,
       vy: 0
     };
 
+    // ---------- 오디오 초기화 ----------
     function initAudio(stream) {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const source = audioContext.createMediaStreamSource(stream);
@@ -108,7 +110,6 @@
       analyser.fftSize = 2048;
       const bufferLength = analyser.fftSize;
       dataArray = new Uint8Array(bufferLength);
-
       source.connect(analyser);
       micReady = true;
     }
@@ -119,16 +120,18 @@
       analyser.getByteTimeDomainData(dataArray);
       let sum = 0;
       for (let i = 0; i < dataArray.length; i++) {
-        const v = dataArray[i] - 128; 
+        const v = dataArray[i] - 128;
         sum += Math.abs(v);
       }
       const avg = sum / dataArray.length;
       lastAvgAmp = avg;
 
+      // 상대 dB
       let db = 20 * Math.log10(avg + 1);
       if (!isFinite(db)) db = 0;
       lastDb = Math.max(0, Math.round(db));
 
+      // 0~1 정규화 볼륨
       let volume = avg / 40;
       if (volume > 1) volume = 1;
       if (volume < 0) volume = 0;
@@ -137,6 +140,7 @@
       return volume;
     }
 
+    // ---------- 게임 초기화 ----------
     function resetGame() {
       player.x = 100;
       player.y = groundY;
@@ -164,9 +168,10 @@
       requestAnimationFrame(gameLoop);
     }
 
+    // ---------- 스폰 ----------
     function spawnObstacle() {
       const height = 60 + Math.random() * 60;
-      const width = 40 + Math.random() * 20;
+      const width  = 30 + Math.random() * 20;
       obstacles.push({
         x: canvas.width,
         y: groundY + (player.h - height),
@@ -177,7 +182,7 @@
     }
 
     function spawnCoin() {
-      const r = 14;
+      const r = 10 + Math.random() * 8;
       const minY = 140;
       const maxY = groundY - 40;
       const y = minY + Math.random() * (maxY - minY);
@@ -190,6 +195,7 @@
       });
     }
 
+    // ---------- 충돌 ----------
     function isColliding(a, b) {
       return !(
         a.x + a.w < b.x ||
@@ -207,6 +213,7 @@
       return (dx * dx + dy * dy) < (circle.r * circle.r);
     }
 
+    // ---------- 업데이트 ----------
     function update(delta) {
       const volume = getVolume();
 
@@ -215,10 +222,10 @@
         jumpCount = 0;
       }
 
-      // 2단 점프: threshold 넘는 순간마다 1번
+      // 2단 점프: threshold 넘는 '순간'마다 1회
       if (volume > jumpThreshold) {
         if (!wasOverThreshold && jumpCount < maxJumpCount) {
-          const baseJump = 7;
+          const baseJump  = 7;          // 전 버전과 동일
           const extraJump = volume * 10;
           player.vy = -(baseJump + extraJump);
           jumpCount++;
@@ -231,16 +238,16 @@
       // 기본 중력
       player.vy += gravity;
 
-      // 떨어지는 중 + 소리 있을 때만 낙하 속도 감소
+      // 소리 + 낙하중일 때만 낙하 속도 감소
       if (volume > 0.15 && player.vy > 0) {
-        const slowFactor = 0.6;
+        const slowFactor = 0.6;   // 전 버전과 동일
         player.vy *= slowFactor;
       }
 
       // 위치 업데이트
       player.y += player.vy;
 
-      // 천장 제한
+      // 천장 제한 (전 버전과 동일)
       const ceilingY = 40;
       if (player.y < ceilingY) {
         player.y = ceilingY;
@@ -297,6 +304,7 @@
       coins = coins.filter(c => !c.collected && c.x + c.r > 0);
     }
 
+    // ---------- 그리기 ----------
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -304,8 +312,8 @@
       ctx.fillStyle = "#555";
       ctx.fillRect(0, groundY + player.h, canvas.width, canvas.height - groundY - player.h);
 
-      // 플레이어 (이미지 있으면 이미지, 아니면 사각형)
-      if (imgPlayer.complete && imgPlayer.naturalWidth !== 0) {
+      // 플레이어: 이미지 있으면 이미지, 아니면 네모
+      if (imgPlayer.complete && imgPlayer.naturalWidth > 0) {
         ctx.drawImage(imgPlayer, player.x, player.y, player.w, player.h);
       } else {
         ctx.fillStyle = "#4caf50";
@@ -314,7 +322,7 @@
 
       // 장애물
       for (let obs of obstacles) {
-        if (imgObstacle.complete && imgObstacle.naturalWidth !== 0) {
+        if (imgObstacle.complete && imgObstacle.naturalWidth > 0) {
           ctx.drawImage(imgObstacle, obs.x, obs.y, obs.w, obs.h);
         } else {
           ctx.fillStyle = "#f44336";
@@ -324,7 +332,7 @@
 
       // 코인
       for (let coin of coins) {
-        if (imgCoin.complete && imgCoin.naturalWidth !== 0) {
+        if (imgCoin.complete && imgCoin.naturalWidth > 0) {
           const size = coin.r * 2;
           ctx.drawImage(imgCoin, coin.x - coin.r, coin.y - coin.r, size, size);
         } else {
@@ -376,6 +384,7 @@
       }
     }
 
+    // ---------- 루프 ----------
     function gameLoop(timestamp) {
       if (!gameRunning) {
         draw();
@@ -390,6 +399,7 @@
       requestAnimationFrame(gameLoop);
     }
 
+    // ---------- 시작 버튼 ----------
     startBtn.addEventListener("click", async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
